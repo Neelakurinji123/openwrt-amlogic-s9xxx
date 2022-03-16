@@ -1,4 +1,4 @@
-# OpenWrt for Amlogic s9xxx tv box based on Offical firmware
+# OpenWrt for Amlogic s9xxx tv box based on Official firmware
 
 View Chinese description  |  [查看中文说明](README.cn.md)
 
