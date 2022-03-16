@@ -263,6 +263,12 @@ The `kernel` / `u-boot` and other resources used by this system are mainly copie
 ## Build
 Edit `openwrt-latest` and run `make` or `bash build.sh`
 
+## Post installation
+Due to a lack of command set, installing the following packages are recommended:
+```
+opkg update && opkg install blkid fdisk lsblk mount-utils
+````
+
 ## Acknowledgments
 
 - [OpenWrt](https://github.com/openwrt/openwrt)
