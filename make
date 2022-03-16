@@ -49,7 +49,9 @@ make_path="${PWD}"
 tmp_path="${make_path}/tmp"
 out_path="${make_path}/out"
 openwrt_path="${make_path}/openwrt-armvirt"
-openwrt_rootfs_file="*armvirt*rootfs.tar.gz"
+openwrt_file="*armvirt*rootfs.tar.gz"
+openwrt_url="https://downloads.openwrt.org/releases"
+BOOT_TYPE=""
 amlogic_path="${make_path}/amlogic-s9xxx"
 armbian_path="${amlogic_path}/amlogic-armbian"
 dtb_path="${amlogic_path}/amlogic-dtb"
@@ -98,7 +100,7 @@ init_var() {
     cd ${make_path}
 
     # If it is followed by [ : ], it means that the option requires a parameter value
-    get_all_ver=$(getopt "db:k:a:v:s:" "${@}")
+    get_all_ver=$(getopt "db:k:a:v:s:t:" "${@}")
 
     while [ -n "${1}" ]; do
         case "${1}" in
@@ -156,6 +158,14 @@ init_var() {
                 error_msg "Invalid -s parameter [ ${2} ]!"
             fi
             ;;
+        -t | --type)
+            if [ -n "${2}" ]; then
+                BOOT_TYPE="${2}"
+                shift
+            else
+                error_msg "Invalid -t parameter [ ${2} ]!"
+            fi
+            ;;
         *)
             error_msg "Invalid option [ ${1} ]!"
             ;;
@@ -167,11 +177,11 @@ init_var() {
 find_openwrt() {
     cd ${make_path}
 
-    openwrt_file_name=$(ls ${openwrt_path}/${openwrt_rootfs_file} 2>/dev/null | head -n 1 | awk -F "/" '{print $NF}')
+    openwrt_file_name=$(ls ${openwrt_path}/${openwrt_file} 2>/dev/null | head -n 1 | awk -F "/" '{print $NF}')
     if [[ -n "${openwrt_file_name}" ]]; then
         echo -e "OpenWrt make file: [ ${openwrt_file_name} ]"
     else
-        error_msg "There is no [ ${openwrt_rootfs_file} ] file in the [ ${openwrt_path} ] directory."
+        error_msg "There is no [ ${openwrt_file} ] file in the [ ${openwrt_path} ] directory."
     fi
 }
 
@@ -413,6 +423,26 @@ extract_openwrt() {
     sync
 }
 
+download_official_openwrt() {
+    source ./openwrt-latest
+    [ -d "openwrt-armvirt" ] || mkdir -p openwrt-armvirt
+    wget --show-progress ${openwrt_url}/${latest}/targets/armvirt/64/sha256sums -O openwrt-armvirt/sha256sums
+    openwrt_armvirt_sha256sum=$(cat openwrt-armvirt/sha256sums | awk '/armvirt-64-default-rootfs.tar.gz/{print $0}' | sed 's/ \*/  /')
+    openwrt_armvirt_rootfs=$(cat openwrt-armvirt/sha256sums | awk '/armvirt-64-default-rootfs.tar.gz/{print $2}' | sed 's/^\*//')
+    [ -f "openwrt-armvirt/${openwrt_armvirt_rootfs}" ] || wget --show-progress ${openwrt_url}/${latest}/targets/armvirt/64/${openwrt_armvirt_rootfs} \
+                                                            -O openwrt-armvirt/${openwrt_armvirt_rootfs}
+    cd openwrt-armvirt
+    t=$(echo $openwrt_armvirt_sha256sum | sha256sum -c - | awk '{print $2}')
+    if [ "$t" == "FAILED" ]; then
+        wget --show-progress ${openwrt_url}/${latest}/targets/armvirt/64/${openwrt_armvirt_rootfs} \
+          -O ${openwrt_armvirt_rootfs}
+        t=$(echo $openwrt_armvirt_sha256sum | sha256sum -c - | awk '{print $2}')
+    fi
+
+    [ "$t" == "OK" ] && echo "openwrt-armvirt-rootfs [Passed]" || echo "openwrt-armvirt-rootfs [Failed]"
+    cd -
+}
+
 extract_armbian() {
     process_msg " (3/7) Extract armbian files."
     cd ${make_path}
@@ -434,7 +464,7 @@ extract_armbian() {
     tar -xJf "${armbian_path}/boot-common.tar.xz" -C ${boot}
     tar -xJf "${armbian_path}/firmware.tar.xz" -C ${root}
 
-    # Process kernel files
+    # Fix u-boot files
     if [ -f ${kernel_dir}/boot-* -a -f ${kernel_dir}/dtb-amlogic-* -a -f ${kernel_dir}/modules-* ]; then
         mkdir -p ${boot}/dtb/amlogic ${root}/lib/modules
 
@@ -448,6 +478,36 @@ extract_armbian() {
         cd ${root}/lib/modules/*/
         rm -rf *.ko
         find ./ -type f -name '*.ko' -exec ln -s {} ./ \;
+
+        # Fix boot from USB and TF card
+        #cp ${boot}/emmc_autoscript.cmd ${boot}/usb_autoscript.cmd
+        #sed -i 's/if fatload mmc 1 0x1000000 u-boot.emmc; then go 0x1000000; fi;/if fatload usb 1 0x1000000 u-boot.usb; then go 0x1000000; fi;/' ${boot}/usb_autoscript.cmd
+        #cp ${boot}/emmc_autoscript.cmd ${boot}/mmc_autoscript.cmd
+        #sed -i 's/if fatload mmc 1 0x1000000 u-boot.emmc; then go 0x1000000; fi;/if fatload mmc 1 0x1000000 u-boot.sd; then go 0x1000000; fi;/' ${boot}/mmc_autoscript.cmd
+        #mkimage -A arm -O linux -T script -C none -d ${boot}/usb_autoscript.cmd ${boot}/usb_autoscript
+        #mkimage -A arm -O linux -T script -C none -d ${boot}/mmc_autoscript.cmd ${boot}/mmc_autoscript
+
+        if [ "$BOOT_TYPE" == "external" ]; then
+            cp ${boot}/aml_autoscript.cmd ${boot}/aml_autoscript.cmd.orig
+            cat >${boot}/aml_autoscript.cmd<<'EOF'
+setenv bootfromnand 0
+setenv upgrade_step 2
+if printenv bootfromsd; then exit; else setenv ab 0; fi;
+setenv bootcmd 'run start_autoscript; run storeboot'
+setenv start_autoscript 'if mmcinfo; then run start_mmc_autoscript; fi; run start_usb_autoscript'
+setenv start_mmc_autoscript 'if fatload mmc 0 1020000 s905_autoscript; then autoscr 1020000; fi;'
+setenv start_usb_autoscript 'for usbdev in 0 1 2 3; do if fatload usb ${usbdev} 1020000 s905_autoscript; then autoscr 1020000; fi; done'
+saveenv
+sleep 1
+run bootcmd
+run storeargs
+reboot
+EOF
+        mkimage -A arm -O linux -T script -C none -d ${boot}/aml_autoscript.cmd ${boot}/aml_autoscript
+         else
+            cp ${boot}/boot.cmd ${boot}/aml_autoscript.cmd
+            mkimage -A arm -O linux -T script -C none -d ${boot}/aml_autoscript.cmd ${boot}/aml_autoscript
+        fi
     else
         error_msg "Have no kernel files in [ ${kernel_dir} ]"
     fi
@@ -774,6 +834,8 @@ echo -e "Server space usage before starting to compile: \n$(df -hT ${PWD}) \n"
 init_var "${@}"
 # Find OpenWrt file
 find_openwrt
+# Download official openwrt
+download_official_openwrt
 # Download the dependency files
 download_depends
 # Download the latest kernel
