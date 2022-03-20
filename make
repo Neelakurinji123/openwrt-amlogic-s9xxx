@@ -68,7 +68,8 @@ script_repo="https://github.com/ophub/luci-app-amlogic/tree/main/luci-app-amlogi
 kernel_repo="https://github.com/ophub/kernel/tree/main/pub"
 version_branch="stable"
 auto_kernel="true"
-build_kernel=("5.15.25" "5.4.180")
+#build_kernel=("5.15.25" "5.4.180")
+build_kernel=("5.15.25" "5.4.186")
 # Set supported SoC
 build_openwrt=(
     "s922x" "s922x-n2" "s922x-reva" "a311d"
@@ -675,11 +676,18 @@ EOF
     cd ${boot}
 
     # Edit the uEnv.txt
+    cat >uEnv.txt<<'EOF'
+LINUX=/zImage
+INITRD=/uInitrd
+FDT=/dtb/amlogic/meson-gxl-s905d-phicomm-n1.dtb
+APPEND=root=LABEL=ROOTFS rootfstype=btrfs rootflags=compress=zstd:6 console=ttyAML0,115200n8 console=tty0 no_console_suspend consoleblank=0 fsck.fix=yes fsck.repair=yes net.ifnames=0 cgroup_enable=cpuset cgroup_memory=1 cgroup_enable=memory swapaccount=1
+EOF
+
     if [ ! -f "uEnv.txt" ]; then
         error_msg "The uEnv.txt File does not exist"
     else
-        old_fdt_dtb="meson-gxl-s905d-phicomm-n1.dtb"
-        sed -i "s/${old_fdt_dtb}/${FDTFILE}/g" uEnv.txt
+        #old_fdt_dtb="meson-gxl-s905d-phicomm-n1.dtb"
+        sed -i "s|FDT=/dtb/amlogic/.*dtb$|FDT=/dtb/amlogic/${FDTFILE}|g" uEnv.txt
         sed -i "s/LABEL=ROOTFS/UUID=${ROOTFS_UUID}/g" uEnv.txt
     fi
 
