@@ -65,11 +65,12 @@ depends_repo="https://github.com/ophub/amlogic-s9xxx-armbian/tree/main/build-arm
 # Install/Update script files download repository
 script_repo="https://github.com/ophub/luci-app-amlogic/tree/main/luci-app-amlogic/root/usr/sbin"
 # Kernel files download repository
+#kernel_repo="https://github.com/Neelakurinji123/openwrt-amlogic-s9xxx/tree/main/pub"
 kernel_repo="https://github.com/ophub/kernel/tree/main/pub"
 version_branch="stable"
 auto_kernel="true"
 #build_kernel=("5.15.25" "5.4.180")
-build_kernel=("5.15.25" "5.4.186")
+build_kernel=("5.15.25" "5.4.186" "5.1.0")
 # Set supported SoC
 build_openwrt=(
     "s922x" "s922x-n2" "s922x-reva" "a311d"
@@ -504,7 +505,7 @@ run bootcmd
 run storeargs
 reboot
 EOF
-        mkimage -A arm -O linux -T script -C none -d ${boot}/aml_autoscript.cmd ${boot}/aml_autoscript
+         mkimage -A arm -O linux -T script -C none -d ${boot}/aml_autoscript.cmd ${boot}/aml_autoscript
          else
             cp ${boot}/boot.cmd ${boot}/aml_autoscript.cmd
             mkimage -A arm -O linux -T script -C none -d ${boot}/aml_autoscript.cmd ${boot}/aml_autoscript
