@@ -112,6 +112,9 @@ The `kernel` / `u-boot` and other resources used by this system are mainly copie
 ## Build
 Edit `openwrt-latest` and run `make` or `bash build.sh`
 
+## system files (WIP)
+Tools for Amlogc SOC. Adjusting CPU frequency scaling etc.
+
 ## Post installation
 Due to a lack of command set, installing the following packages are recommended:
 ```
