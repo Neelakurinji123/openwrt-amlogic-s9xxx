@@ -115,7 +115,7 @@ Edit `openwrt-latest` and run `make` or `bash build.sh`
 ## Post installation
 Due to a lack of command set, installing the following packages are recommended:
 ```
-opkg update && opkg install blkid fdisk lsblk mount-utils perl perlbase-file
+opkg update && opkg install blkid fdisk lsblk mount-utils perl perlbase-base perlbase-file
 ```
 
 ## Acknowledgments
