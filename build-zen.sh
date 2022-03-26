@@ -5,6 +5,6 @@
 #sudo ./make -d -b s912 -k 5.4.180 -t external
 #sudo ./make -d -b s912 -k 5.4.180 -t external
 #sudo ./make -d -b s912 -k 5.4.186 -t external
-#sudo ./make -d -b s912 -k 5.4.186
+sudo ./make -d -b s912 -k 5.4.186
 #sudo ./make -d -b s912 -k 5.15.30
-sudo ./make -d -b s912 -k 5.1.0
+
