@@ -108,6 +108,7 @@ The `kernel` / `u-boot` and other resources used by this system are mainly copie
 | Parameter | Meaning | Description |
 | ---- | ---- | ---- |
 | -t external | - | Boot from an external device such as USB drive or TF card. |
+| -i          | - | Build kernel ipk files. |
 
 ## Build
 Edit `openwrt-latest` and run `make` or `bash build.sh`
