@@ -70,7 +70,7 @@ kernel_repo="https://github.com/ophub/kernel/tree/main/pub"
 version_branch="stable"
 auto_kernel="true"
 #build_kernel=("5.15.25" "5.4.180")
-build_kernel=("5.15.25" "5.4.186" "5.1.0")
+build_kernel=("5.15.25" "5.4.186" "5.10.109")
 # Set supported SoC
 build_openwrt=(
     "s922x" "s922x-n2" "s922x-reva" "a311d"
@@ -102,7 +102,7 @@ init_var() {
     cd ${make_path}
 
     # If it is followed by [ : ], it means that the option requires a parameter value
-    get_all_ver=$(getopt "db:k:a:v:s:t:" "${@}")
+    get_all_ver=$(getopt "db:k:a:v:s:t:i" "${@}")
 
     while [ -n "${1}" ]; do
         case "${1}" in
@@ -167,6 +167,10 @@ init_var() {
             else
                 error_msg "Invalid -t parameter [ ${2} ]!"
             fi
+            ;;
+        -i | --ipk)
+            IPK=true
+            shift
             ;;
         *)
             error_msg "Invalid option [ ${1} ]!"
@@ -441,7 +445,8 @@ download_official_openwrt() {
         t=$(echo $openwrt_armvirt_sha256sum | sha256sum -c - | awk '{print $2}')
     fi
 
-    [ "$t" == "OK" ] && echo "openwrt-armvirt-rootfs [Passed]" || echo "openwrt-armvirt-rootfs [Failed]"
+    [ "$t" == "OK" ] && echo -e "openwrt-armvirt-rootfs [\033[1;92m Passed \033[0m]" || \
+      echo -e "openwrt-armvirt-rootfs [\033[1;91m Failed \033[0m]"
     cd -
 }
 
@@ -706,6 +711,203 @@ EOF
     sync
 }
 
+create_ipk_boot() {
+    cd $make_path
+    local TMP_DIR=$(mktemp -d -p .)
+    echo '2.0' > $TMP_DIR/debian-binary
+
+    # data
+    mkdir -p $TMP_DIR/data/boot $TMP_DIR/data/lib/upgrade/keep.d
+    echo '/boot/uEnv.txt' > $TMP_DIR/data/lib/upgrade/keep.d/uEnv.txt
+    cp -dp ${boot}/* $TMP_DIR/data/boot/
+    mv $TMP_DIR/data/boot/uEnv.txt $TMP_DIR/data/boot/uEnv.txt-opkg
+    cd $TMP_DIR/data
+    chown -R root: *
+    tar czf ../data.tar.gz *
+    cd -
+
+    # control
+    mkdir -p $TMP_DIR/control
+    echo > $TMP_DIR/control/conffiles
+    cat >$TMP_DIR/control/control<<'EOF'
+Package: aml-boot
+Version: @VER
+Depends: libc
+Source: myfeed/aml-boot
+SourceName: boot
+Section: base
+SourceDateEpoch: @EPOCH
+CPE-ID: cpe:/a:aml-boot:aml-boot
+Maintainer: Krishna <krishna@hottunalabs.net>
+Architecture: aarch64_cortex-a53
+Installed-Size: @SIZE
+Description:  AML kernel for OpenWrt
+EOF
+    size=$(du -sb $TMP_DIR/data | cut -f1)
+    epoch=$(date +%s)
+    sed -i "s/Version: @VER/Version: k${kernel}/" $TMP_DIR/control/control
+    sed -i "s/Installed-Size: @SIZE/Installed-Size: ${size}/" $TMP_DIR/control/control
+    sed -i "s/SourceDateEpoch: @EPOCH/SourceDateEpoch: ${epoch}/" $TMP_DIR/control/control
+
+    cat >$TMP_DIR/control/postinst<<'EOF'
+#!/bin/sh
+[ "${IPKG_NO_SCRIPT}" = "1" ] && exit 0
+[ -s ${IPKG_INSTROOT}/lib/functions.sh ] || exit 0
+. ${IPKG_INSTROOT}/lib/functions.sh
+default_postinst $0 $@
+EOF
+
+    cat >$TMP_DIR/control/prerm<<'EOF'
+#!/bin/sh
+[ -s ${IPKG_INSTROOT}/lib/functions.sh ] || exit 0
+. ${IPKG_INSTROOT}/lib/functions.sh
+default_prerm $0 $@
+EOF
+
+    chmod +x $TMP_DIR/control/prerm $TMP_DIR/control/postinst
+
+    cd $TMP_DIR/control
+    tar czf ../control.tar.gz *
+    cd -
+    rm -rf $TMP_DIR/control $TMP_DIR/data
+
+    # final
+    cd $TMP_DIR
+    tar czf - * > ../aml-boot_k${kernel}_aarch64_cortex-a53.ipk
+    cd -
+    rm -rf $TMP_DIR
+}
+
+create_ipk_dtb() {
+    cd $make_path
+    local TMP_DIR=$(mktemp -d -p .)
+    echo '2.0' > $TMP_DIR/debian-binary
+
+    # data
+    mkdir -p $TMP_DIR/data/boot $TMP_DIR/data/lib/upgrade/keep.d
+    cp -a ${boot}/dtb $TMP_DIR/data/boot/
+    cd $TMP_DIR/data
+    chown -R root: *
+    tar czf ../data.tar.gz *
+    cd -
+
+    # control
+    mkdir -p $TMP_DIR/control
+    echo > $TMP_DIR/control/conffiles
+    cat >$TMP_DIR/control/control<<'EOF'
+Package: aml-dtb
+Version: @VER
+Depends: libc
+Source: myfeed/aml-dtb
+SourceName: dtb
+Section: base
+SourceDateEpoch: @EPOCH
+CPE-ID: cpe:/a:aml-dtb:aml-dtb
+Maintainer: Krishna <krishna@hottunalabs.net>
+Architecture: aarch64_cortex-a53
+Installed-Size: @SIZE
+Description:  AML kernel for OpenWrt
+EOF
+    size=$(du -sb $TMP_DIR/data | cut -f1)
+    epoch=$(date +%s)
+    sed -i "s/Version: @VER/Version: k${kernel}/" $TMP_DIR/control/control
+    sed -i "s/Installed-Size: @SIZE/Installed-Size: ${size}/" $TMP_DIR/control/control
+    sed -i "s/SourceDateEpoch: @EPOCH/SourceDateEpoch: ${epoch}/" $TMP_DIR/control/control
+
+    cat >$TMP_DIR/control/postinst<<'EOF'
+#!/bin/sh
+[ "${IPKG_NO_SCRIPT}" = "1" ] && exit 0
+[ -s ${IPKG_INSTROOT}/lib/functions.sh ] || exit 0
+. ${IPKG_INSTROOT}/lib/functions.sh
+default_postinst $0 $@
+EOF
+
+    cat >$TMP_DIR/control/prerm<<'EOF'
+#!/bin/sh
+[ -s ${IPKG_INSTROOT}/lib/functions.sh ] || exit 0
+. ${IPKG_INSTROOT}/lib/functions.sh
+default_prerm $0 $@
+EOF
+
+    chmod +x $TMP_DIR/control/prerm $TMP_DIR/control/postinst
+
+    cd $TMP_DIR/control
+    tar czf ../control.tar.gz *
+    cd -
+    rm -rf $TMP_DIR/control $TMP_DIR/data
+
+    # final
+    cd $TMP_DIR
+    tar czf - * > ../aml-dtb_k${kernel}_aarch64_cortex-a53.ipk
+    cd -
+    rm -rf $TMP_DIR
+}
+
+create_ipk_modules() {
+    cd $make_path
+    local TMP_DIR=$(mktemp -d -p .)
+    echo '2.0' > $TMP_DIR/debian-binary
+
+    # data
+    mkdir -p $TMP_DIR/data/lib/modules $TMP_DIR/data/lib/upgrade/keep.d
+    cp -a ${root}/lib/modules/${kernel}-* $TMP_DIR/data/lib/modules/
+    cd $TMP_DIR/data
+    chown -R root: *
+    tar czf ../data.tar.gz *
+    cd -
+
+    # control
+    mkdir -p $TMP_DIR/control
+    echo > $TMP_DIR/control/conffiles
+    cat >$TMP_DIR/control/control<<'EOF'
+Package: aml-modules
+Version: @VER
+Depends: libc
+Source: myfeed/aml-modules
+SourceName: modules
+Section: base
+SourceDateEpoch: @EPOCH
+CPE-ID: cpe:/a:aml-module:aml-module
+Maintainer: Krishna <krishna@hottunalabs.net>
+Architecture: aarch64_cortex-a53
+Installed-Size: @SIZE
+Description:  AML kernel module for OpenWrt
+EOF
+    size=$(du -sb $TMP_DIR/data | cut -f1)
+    epoch=$(date +%s)
+    sed -i "s/Version: @VER/Version: k${kernel}/" $TMP_DIR/control/control
+    sed -i "s/Installed-Size: @SIZE/Installed-Size: ${size}/" $TMP_DIR/control/control
+    sed -i "s/SourceDateEpoch: @EPOCH/SourceDateEpoch: ${epoch}/" $TMP_DIR/control/control
+
+    cat >$TMP_DIR/control/postinst<<'EOF'
+#!/bin/sh
+[ "${IPKG_NO_SCRIPT}" = "1" ] && exit 0
+[ -s ${IPKG_INSTROOT}/lib/functions.sh ] || exit 0
+. ${IPKG_INSTROOT}/lib/functions.sh
+default_postinst $0 $@
+EOF
+
+    cat >$TMP_DIR/control/prerm<<'EOF'
+#!/bin/sh
+[ -s ${IPKG_INSTROOT}/lib/functions.sh ] || exit 0
+. ${IPKG_INSTROOT}/lib/functions.sh
+default_prerm $0 $@
+EOF
+
+    chmod +x $TMP_DIR/control/prerm $TMP_DIR/control/postinst
+
+    cd $TMP_DIR/control
+    tar czf ../control.tar.gz *
+    cd -
+    rm -rf $TMP_DIR/control $TMP_DIR/data
+
+    # final
+    cd $TMP_DIR
+    tar czf - * > ../aml-modules_k${kernel}_aarch64_cortex-a53.ipk
+    cd -
+    rm -rf $TMP_DIR
+}
+
 make_image() {
     process_msg " (5/7) Make openwrt image."
     cd ${make_path}
@@ -815,6 +1017,13 @@ loop_make() {
                 extract_openwrt
                 extract_armbian
                 refactor_files
+
+                if $IPK; then
+                    create_ipk_boot
+                    create_ipk_dtb
+                    create_ipk_modules
+                fi
+
                 make_image
                 copy_files
                 clean_tmp
