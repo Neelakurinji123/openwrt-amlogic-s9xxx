@@ -183,12 +183,13 @@ init_var() {
 find_openwrt() {
     cd ${make_path}
 
-    openwrt_file_name=$(ls ${openwrt_path}/${openwrt_file} 2>/dev/null | head -n 1 | awk -F "/" '{print $NF}')
-    if [[ -n "${openwrt_file_name}" ]]; then
-        echo -e "OpenWrt make file: [ ${openwrt_file_name} ]"
-    else
-        error_msg "There is no [ ${openwrt_file} ] file in the [ ${openwrt_path} ] directory."
-    fi
+    #openwrt_file_name=$(ls ${openwrt_path}/${openwrt_file} 2>/dev/null | head -n 1 | awk -F "/" '{print $NF}')
+    #if [[ -n "${openwrt_file_name}" ]]; then
+    #    echo -e "OpenWrt make file: [ ${openwrt_file_name} ]"
+    #else
+    #    error_msg "There is no [ ${openwrt_file} ] file in the [ ${openwrt_path} ] directory."
+    #fi
+
 }
 
 download_depends() {
@@ -419,7 +420,8 @@ extract_openwrt() {
     process_msg " (2/7) Extract openwrt files."
     cd ${make_path}
 
-    local firmware="${openwrt_path}/${openwrt_file_name}"
+    #local firmware="${openwrt_path}/${openwrt_file_name}"
+    local firmware="${openwrt_path}/${openwrt_armvirt_rootfs}"
 
     root_comm="${tmp_path}/root_comm"
     mkdir -p ${root_comm}
@@ -431,13 +433,13 @@ extract_openwrt() {
 
 download_official_openwrt() {
     source ./openwrt-latest
-    [ -d "openwrt-armvirt" ] || mkdir -p openwrt-armvirt
-    wget --show-progress ${openwrt_url}/${latest}/targets/armvirt/64/sha256sums -O openwrt-armvirt/sha256sums
-    openwrt_armvirt_sha256sum=$(cat openwrt-armvirt/sha256sums | awk '/armvirt-64-default-rootfs.tar.gz/{print $0}' | sed 's/ \*/  /')
-    openwrt_armvirt_rootfs=$(cat openwrt-armvirt/sha256sums | awk '/armvirt-64-default-rootfs.tar.gz/{print $2}' | sed 's/^\*//')
-    [ -f "openwrt-armvirt/${openwrt_armvirt_rootfs}" ] || wget --show-progress ${openwrt_url}/${latest}/targets/armvirt/64/${openwrt_armvirt_rootfs} \
-                                                            -O openwrt-armvirt/${openwrt_armvirt_rootfs}
-    cd openwrt-armvirt
+    [ -d "$openwrt_path" ] || mkdir -p $openwrt_path
+    wget --show-progress ${openwrt_url}/${latest}/targets/armvirt/64/sha256sums -O $openwrt_path/sha256sums
+    openwrt_armvirt_sha256sum=$(cat $openwrt_path/sha256sums | awk '/armvirt-64-default-rootfs.tar.gz/{print $0}' | sed 's/ \*/  /')
+    openwrt_armvirt_rootfs=$(cat $openwrt_path/sha256sums | awk '/armvirt-64-default-rootfs.tar.gz/{print $2}' | sed 's/^\*//')
+    [ -f "$openwrt_path/${openwrt_armvirt_rootfs}" ] || wget --show-progress ${openwrt_url}/${latest}/targets/armvirt/64/${openwrt_armvirt_rootfs} \
+                                                            -O $openwrt_path/${openwrt_armvirt_rootfs}
+    cd $openwrt_path
     t=$(echo $openwrt_armvirt_sha256sum | sha256sum -c - | awk '{print $2}')
     if [ "$t" == "FAILED" ]; then
         wget --show-progress ${openwrt_url}/${latest}/targets/armvirt/64/${openwrt_armvirt_rootfs} \

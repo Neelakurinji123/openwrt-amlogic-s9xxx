@@ -60,18 +60,18 @@ init_var() {
 }
 
 require_pkgs() {
-    $(opkg list_installed | grep -q wget-ssl) || opkg install wget-ssl
-    $(opkg list_installed | grep -q curl) || opkg install curl
-    $(opkg list_installed | grep -q getopt) || opkg install getopt
+    $(opkg list_installed | grep -q ^wget-ssl) || opkg install wget-ssl
+    $(opkg list_installed | grep -q ^curl) || opkg install curl
+    $(opkg list_installed | grep -q ^getopt) || opkg install getopt
 }
 
 availability_check() {
     echo -e "- Searching latest Openwrt... \n"
-    if [ "$opt" = "specific" ]; then
-        release_list=$(curl -s ${openwrt_url}/ | grep "href=\"[0-9][0-9]" | sed 's|^.*<a .*\">\(.*\)</a>.*$|\1|' | sed '1!G;h;$!d')
-    else
+#   if [ "$opt" = "specific" ]; then
+#        release_list=$(curl -s ${openwrt_url}/ | grep "href=\"[0-9][0-9]" | sed 's|^.*<a .*\">\(.*\)</a>.*$|\1|' | sed '1!G;h;$!d')
+#    else
         release_list=$(curl -s ${openwrt_url}/ | grep "href=\"${openwrt_branch}" | sed 's|^.*<a .*\">\(.*\)</a>.*$|\1|' | sed '1!G;h;$!d')
-    fi
+#    fi
 
     release=$(echo $release_list | head -n 1 | cut -f 1 -d ' ')
 
@@ -110,11 +110,11 @@ availability_check() {
     elif $( echo $release | grep -q '\-rc') && [ "${minor_ver##*-}" -lt "${release##*-}" ]; then
         echo -e "\n Upgradable OpenWrt is available: v${release} \n"
         upgradable=true
-    elif [ $openwrt_branch -lt ${release%.*} ] && $( echo $release | grep -q '\.[0-9]$'); then
+    elif [ ${openwrt_branch%%.*} -lt ${release%%.*} ] && $( echo $release | grep -q '\.[0-9]$'); then
         echo -e "\n Major upgrade is available: v${release} \n\n"
         echo -e " WARNING: There is no guarantee if new configuration format changes. \n\n"  
         upgradable=true
-    elif [ $minor_ver -lt ${release##*.}; then
+    elif [ $minor_ver -lt ${release##*.} ]; then
         echo -e "\n Upgradable OpenWrt is available: v${release} \n"
         upgradable=true
     else
@@ -137,7 +137,9 @@ availability_check() {
 
 download_official_openwrt() {
     echo -n "- Downloading OpenWrt image "
-    /usr/bin/wget --show-progress ${openwrt_url}/${release}/targets/${main_target}/${sub_target}/sha256sums -O ${tmp_path}/sha256sums
+    source /etc/os-release
+    /usr/bin/wget --show-progress ${openwrt_url}/${release}/targets/${OPENWRT_BOARD}/sha256sums -O ${tmp_path}/sha256sums
+    #/usr/bin/wget --show-progress ${openwrt_url}/${release}/packages/${OPENWRT_ARCH}/base/Packages -O ${tmp_path}/base_packages
     echo -n "- Downloading openwrt-rootfs: "
     openwrt_sha256sum=$(cat ${tmp_path}/sha256sums | awk /rootfs-ext4.img.gz/'{print $0}' | sed 's/ \*/  /')
     openwrt_rootfs=$(cat ${tmp_path}/sha256sums | awk /rootfs-ext4.img.gz/'{print $2}' | sed 's/^\*//')
@@ -178,9 +180,10 @@ mount_img() {
     mount -o bind /dev/pts rootfs/dev/pts &&
     cp sha256sums rootfs/ &&
     cp $make_path/$command_name rootfs/ &&
-    echo -en "libc\nbase-files\nlibgcc1" > rootfs/core_pkglist &&
+    echo -e "libc\nbase-files\nlibgcc1\nlibrt" > rootfs/core_pkglist &&
+    echo -e "libpthread\nbusybox\nblockdev\nca-bundle\ngetrandom\nlibblkid1" > rootfs/core_base_pkglist &&
     chroot rootfs opkg list_installed > rootfs/base_pkglist &&
-    sed -i '/kernel/d; /^base-files/d; /^libc/d; /^libgcc1/d' rootfs/base_pkglist &&
+    sed -i '/kernel/d;/^base-files/d;/^libc/d;/^libgcc1/d;/^librt/d;/^kmod-/d' rootfs/base_pkglist &&
     chroot rootfs opkg update &&
     chroot rootfs opkg install getopt curl wget-ssl &&
     root_device=$(mount | grep 'on / type' | cut -d ' ' -f 1) &&
@@ -188,7 +191,7 @@ mount_img() {
     mount -o bind /tmp rootfs/target/tmp &&
     echo "dest target /target" >> rootfs/etc/opkg.conf &&
     chroot rootfs opkg list_installed > rootfs/others_pkglist &&
-    sed -i '/^luci/d; /^kmod-/d; /^kernel/d; /^base-files/d; /^libc/d; /^libgcc1/d' rootfs/others_pkglist &&
+    sed -i '/^luci/d;/^kmod-/d;/^kernel/d;/^base-files/d;/^libc/d;/^libgcc1/d;/^librt/d' rootfs/others_pkglist &&
     gunzip -c /tmp/opkg-lists/openwrt_base > rootfs/uncompressed_list &&
     gunzip -c /tmp/opkg-lists/openwrt_core >> rootfs/uncompressed_list &&
     gunzip -c /tmp/opkg-lists/openwrt_luci >> rootfs/uncompressed_list &&
@@ -203,6 +206,10 @@ mount_img() {
         echo -n "- Mounting OpenWrt image "
         unmount_ing
         error_msg "Failed"
+    fi
+
+    if [ ${release%.*} = "21.02" ]; then
+        echo -e "uclient-fetch\nlibubox20210516\nlibblobmsg-json20210516\nlibubus20210630\nubusd\nubus\nopkg\nlibjson-c5\njshn\njsonfilter" >> rootfs/core_base_pkglist
     fi
 }
 
@@ -261,36 +268,6 @@ get_new_pkg_info() {
     done
 }
 
-install_dep_pkgs() {
-    cd $tmp_path
-    get_pkg_info "rootfs/uncompressed_list" $1
-    IFS=$OLDIFS
-    for f2 in $(echo -n $Depends | sed 's/,/ /g;s/kernel//;s/libc//;s/|base\-files//;s/libgcc1//'); do
-        cur_v=$(cat $target_info_dir/${f2}.control | grep ^Version: | cut -f2 -d ' ')
-        get_new_pkg_info "rootfs/uncompressed_list" $f2
-        if [ "$Version" = "$cur_v" ]; then
-            continue
-        else
-            chroot rootfs opkg download $f2 --cache /pkgs
-            chroot rootfs opkg install --force-reinstall --nodeps $(echo /pkgs/${Filename}) -o /target
-        fi
-    done    
-}
-
-download_dep_pkgs() {
-    cd $tmp_path
-    get_new_pkg_info "rootfs/uncompressed_list" $1
-    IFS=$OLDIFS
-    for f2 in $(echo -n $Depends | sed 's/,/ /g;s/kernel//;s/libc//;s/|base\-files//;s/libgcc1//'); do
-        get_pkg_info "rootfs/uncompressed_list" $f2
-        if [ -f rootfs/pkgs/${Filename} ]; then
-            continue
-        else
-            chroot rootfs opkg download $f2 --cache /pkgs
-        fi
-    done    
-}
-
 upgrade_core() {
     # Upgrade core packages
     cd $tmp_path
@@ -300,93 +277,23 @@ upgrade_core() {
         source rootfs/etc/os-release
         for f in $(cat rootfs/core_pkglist); do
             pkg_name=$(cat rootfs/sha256sums | awk "/ \*packages\/$f/{print $2}" | cut -d/ -f2)
-            chroot rootfs wget --show-progress ${openwrt_url}/${VERSION}/targets/${OPENWRT_BOARD}/packages/$pkg_name -O /pkgs/$pkg_name
-            chroot rootfs opkg install --force-removal-of-essential-packages --force-reinstall pkgs/$pkg_name -o /target
+            chroot rootfs wget --show-progress ${openwrt_url}/${VERSION}/targets/${OPENWRT_BOARD}/packages/$pkg_name -O /$pkg_name
+            chroot rootfs opkg install --force-removal-of-essential-packages --force-reinstall /$pkg_name -o /target
+        done
+        for f in $(cat rootfs/core_base_pkglist); do
+            get_new_pkg_info "rootfs/uncompressed_list" $f
+            chroot rootfs wget --show-progress ${openwrt_url}/${VERSION}/packages/${OPENWRT_ARCH}/base/$Filename -O /$Filename
+            chroot rootfs opkg install --force-removal-of-essential-packages --force-reinstall /$Filename -o /target
         done
         echo -n "- upgrading core packages "
     fi
 }
 
-upgrade_base() {
-    cd $tmp_path
-    target_info_dir="rootfs/target/usr/lib/opkg/info"
-
-    input_key
-    if [ "$key" = "y" ]; then
-        # Upgrade official packages
-        echo -n "- processing"
-        IFS=$'\n'
-        for n in $(cat rootfs/base_pkglist); do
-            echo -n '.'
-            f=$(echo $n | cut -f 1 -d ' ')                                                # pkg name
-            get_new_pkg_info "rootfs/uncompressed_list" $f                                # get new pkg info
-            cur_v=$(cat $target_info_dir/${f}.control | grep ^Version: | cut -f2 -d ' ')  # current pkg version
-            if [ "$Version" = "$cur_v" ]; then
-                continue
-                #echo " The package is up to date: $f"
-            else
-                #echo " New package is available: $n"
-                #input_key
-                echo
-                key="y"
-                if [ "$key" = "y" ]; then
-                    #install_dep_pkgs $f
-                    download_dep_pkgs $f
-                    chroot rootfs opkg download $f --cache /pkgs
-                    chroot rootfs opkg install --force-reinstall --nodeps $(echo /pkgs/${Filename}) -o /target
-                fi
-            fi
-        done
-        echo -n "- upgrading base packages "
-    fi
+upgrade_the_rest_of_pkgs() {
+    opkg install --force_depends $(opkg list-upgradable 2>/dev/null | cut -d' ' -f 1 | tr '\n' ' ')
+    echo -n "- upgrading all packages "
 }
 
-upgrade_others() {
-    cd $tmp_path
-    target_info_dir="rootfs/target/usr/lib/opkg/info"
-
-    input_key
-    if [ "$key" = "y" ]; then
-
-        # Upgrade the rest of packages
-        echo -n "- processing"
-        IFS=$'\n'
-        for n in $(cat rootfs/others_pkglist); do
-            echo -n '.'
-            f=$(echo $n | cut -f 1 -d ' ')                                                # get pkg name
-            get_new_pkg_info "rootfs/uncompressed_list" $f                                # get new pkg info
-            cur_v=$(cat $target_info_dir/${f}.control | grep ^Version: | cut -f2 -d ' ')  # current pkg version
-            if [ "$Version" = "$cur_v" ]; then
-                #echo " The package is up to date: $f"
-                continue
-            else
-                #echo " New package is available: $n"
-                #input_key
-                echo
-                key="y"
-                if [ "$key" = "y" ]; then
-                    #install_dep_pkgs $f
-                    download_dep_pkgs $f
-                    chroot rootfs opkg download $f --cache /pkgs
-                    chroot rootfs opkg install --force-reinstall --nodeps $(echo /pkgs/${Filename}) -o /target
-                fi
-            fi
-        done
-        echo -n "- upgrading other packages "
-    fi
-}
-
-upgrade_systemfiles() {
-    echo -n "- upgrading system files "
-    cd $tmp_path
-    #cp rootfs/etc/banner rootfs/target/etc/
-    #cp rootfs/etc/openwrt_release rootfs/target/etc/
-    #cp rootfs/etc/openwrt_version rootfs/target/etc/
-    #cp rootfs/etc/opkg.conf rootfs/target/etc/
-    #cp rootfs/etc/opkg/distfeeds.conf rootfs/target/etc/opkg/
-    rm -f rootfs/target/etc/opkg/keys/*
-    cp rootfs/etc/opkg/keys/* rootfs/target/etc/opkg/keys/
-}
 
 opkg update
 require_pkgs
@@ -396,9 +303,9 @@ download_official_openwrt
 mount_img 
 echo "- sysupgrade: second stage starts"
 upgrade_core && process_msg "Done" || error_msg "Failed"
-upgrade_base && process_msg "Done" || error_msg "Failed"
-upgrade_others && process_msg "Done" || error_msg "Failed"
-upgrade_systemfiles && process_msg "Done" || error_msg "Failed"
-echo "Upgrade has been completed successfully."
+upgrade_the_rest_of_pkgs && process_msg "Done" || error_msg "Failed"
+
+echo "  Upgrade has been completed successfully."
 
 ### End ###
+
