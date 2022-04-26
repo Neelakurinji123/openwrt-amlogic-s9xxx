@@ -291,7 +291,7 @@ upgrade_core() {
 
 upgrade_the_rest_of_pkgs() {
 #    opkg upgrade $(opkg list-upgradable 2>/dev/null | cut -d' ' -f 1 | tr '\n' ' ')
-    opkg upgrade $(opkg list-upgradable 2>/dev/null | cut -d' ' -f 1)
+    opkg upgrade --force-depends $(opkg list-upgradable 2>/dev/null | cut -d' ' -f 1)
     echo -n "- upgrading all packages "
 }
 
