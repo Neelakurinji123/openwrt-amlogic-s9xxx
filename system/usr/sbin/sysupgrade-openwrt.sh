@@ -179,7 +179,7 @@ mount_img() {
     mount -o bind /tmp rootfs/tmp &&
     mount -o bind /dev/pts rootfs/dev/pts &&
     cp sha256sums rootfs/ &&
-    cp $make_path/$command_name rootfs/ &&
+    cp $(which $command_name) rootfs/ &&
     echo -e "libc\nbase-files\nlibgcc1\nlibrt" > rootfs/core_pkglist &&
     echo -e "libpthread\nbusybox\nblockdev\nca-bundle\ngetrandom\nlibblkid1" > rootfs/core_base_pkglist &&
     chroot rootfs opkg list_installed > rootfs/base_pkglist &&
@@ -290,7 +290,8 @@ upgrade_core() {
 }
 
 upgrade_the_rest_of_pkgs() {
-    opkg install --force_depends $(opkg list-upgradable 2>/dev/null | cut -d' ' -f 1 | tr '\n' ' ')
+#    opkg upgrade $(opkg list-upgradable 2>/dev/null | cut -d' ' -f 1 | tr '\n' ' ')
+    opkg upgrade $(opkg list-upgradable 2>/dev/null | cut -d' ' -f 1)
     echo -n "- upgrading all packages "
 }
 
